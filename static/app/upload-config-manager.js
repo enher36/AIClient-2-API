@@ -692,7 +692,7 @@ async function deleteConfig(path) {
         showToast(t('common.error'), t('upload.config.notExist'), 'error');
         return;
     }
-    
+
     // 显示删除确认模态框
     showDeleteConfirmModal(config);
 }

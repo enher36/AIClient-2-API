@@ -1405,6 +1405,39 @@ input:checked + .toggle-slider:before {
     color: #2c3e50;
 }
 
+.provider-usage-summary .value {
+    font-size: 16px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.provider-usage-summary .value i {
+    font-size: 14px;
+}
+
+.provider-usage-summary .usage-loading {
+    font-size: 14px;
+    color: #6c757d;
+}
+
+.provider-usage-summary .text-success {
+    color: #28a745 !important;
+}
+
+.provider-usage-summary .text-warning {
+    color: #ffc107 !important;
+}
+
+.provider-usage-summary .text-danger {
+    color: #dc3545 !important;
+}
+
+.provider-usage-summary .text-muted {
+    color: #6c757d !important;
+    font-size: 14px;
+}
+
 .provider-summary-actions {
     margin-left: auto;
     display: flex;
@@ -1590,6 +1623,33 @@ input:checked + .toggle-slider:before {
 }
 
 .btn-batch-link i {
+    font-size: 11px;
+}
+
+.btn-batch-import {
+    background: linear-gradient(135deg, #059669 0%, #10b981 100%);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    padding: 6px 12px;
+    font-size: 12px;
+    cursor: pointer;
+    margin-left: 8px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.2s ease;
+    box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
+    font-weight: 500;
+}
+
+.btn-batch-import:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
+    background: linear-gradient(135deg, #047857 0%, #059669 100%);
+}
+
+.btn-batch-import i {
     font-size: 11px;
 }
 
@@ -3407,6 +3467,37 @@ input:checked + .toggle-slider:before {
 }
 
 .generate-auth-btn i {
+    font-size: 0.75rem;
+}
+
+/* 批量导入按钮样式 - 与授权按钮类似但使用绿色 */
+.batch-import-kiro-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.25rem 0.75rem;
+    background: linear-gradient(135deg, #059669 0%, #10b981 100%);
+    color: white;
+    border: none;
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: var(--transition);
+    box-shadow: 0 2px 6px rgba(16, 185, 129, 0.3);
+}
+
+.batch-import-kiro-btn:hover {
+    background: linear-gradient(135deg, #047857 0%, #059669 100%);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 10px rgba(16, 185, 129, 0.4);
+}
+
+.batch-import-kiro-btn:active {
+    transform: translateY(0);
+}
+
+.batch-import-kiro-btn i {
     font-size: 0.75rem;
 }
 

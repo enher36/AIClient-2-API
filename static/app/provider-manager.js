@@ -327,6 +327,20 @@ function renderProviders(providers) {
                 handleGenerateAuthUrl(providerType);
             });
         }
+
+        // 为批量导入按钮添加事件监听 (仅 Kiro OAuth)
+        const batchImportBtn = providerDiv.querySelector('.batch-import-kiro-btn');
+        const batchImportFile = providerDiv.querySelector('.batch-import-kiro-file');
+        if (batchImportBtn && batchImportFile) {
+            batchImportBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                batchImportFile.click();
+            });
+            batchImportFile.addEventListener('change', (e) => {
+                e.stopPropagation();
+                handleBatchImportKiro(e);
+            });
+        }
     });
     
     // 更新统计卡片数据
@@ -423,12 +437,22 @@ async function openProviderManager(providerType) {
 function generateAuthButton(providerType) {
     // 只为支持OAuth的提供商显示授权按钮
     const oauthProviders = ['gemini-cli-oauth', 'gemini-antigravity', 'openai-qwen-oauth', 'claude-kiro-oauth'];
-    
+
     if (!oauthProviders.includes(providerType)) {
         return '';
     }
-    
+
+    // 为 Kiro OAuth 添加批量导入按钮
+    const batchImportBtn = providerType === 'claude-kiro-oauth' ? `
+        <button class="batch-import-kiro-btn" title="批量导入账户管理器凭证">
+            <i class="fas fa-file-import"></i>
+            <span>批量导入</span>
+        </button>
+        <input type="file" class="batch-import-kiro-file" accept=".json" style="display: none;">
+    ` : '';
+
     return `
+        ${batchImportBtn}
         <button class="generate-auth-btn" title="生成OAuth授权链接">
             <i class="fas fa-key"></i>
             <span data-i18n="providers.auth.generate">${t('providers.auth.generate')}</span>
@@ -1043,6 +1067,95 @@ async function restartServiceAfterUpdate() {
     } catch (error) {
         console.error('Restart after update failed:', error);
         showToast(t('common.error'), t('header.restart.failed') + ': ' + error.message, 'error');
+    }
+}
+
+/**
+ * 处理批量导入 Kiro 凭证文件
+ * @param {Event} event - 文件选择事件
+ */
+async function handleBatchImportKiro(event) {
+    const file = event.target.files?.[0];
+    if (!file) {
+        return;
+    }
+
+    // 重置 input，允许再次选择相同文件
+    event.target.value = '';
+
+    // 显示加载提示
+    showToast('处理中', '正在导入凭证...', 'info');
+
+    try {
+        const formData = new FormData();
+        formData.append('file', file);
+
+        const response = await fetch('/api/batch-import-kiro-credentials', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${window.apiClient?.token || ''}`
+            },
+            body: formData
+        });
+
+        const result = await response.json();
+
+        if (!response.ok) {
+            throw new Error(result.error?.message || '导入失败');
+        }
+
+        // 显示导入结果
+        const successCount = result.successCount || 0;
+        const failCount = result.failCount || 0;
+        const groupName = result.groupName || '未知分组';
+
+        if (successCount > 0) {
+            // 构建成功账户列表（最多显示5个），包含额度信息
+            const successResults = result.results?.filter(r => r.success) || [];
+            const displayCount = Math.min(successResults.length, 5);
+            const successAccounts = successResults
+                .slice(0, displayCount)
+                .map(r => `• ${r.email} [${r.subscription || '?'}] 额度: ${r.usage || 'N/A'}`)
+                .join('\n');
+            const moreText = successResults.length > displayCount ? `\n... 及其他 ${successResults.length - displayCount} 个账户` : '';
+
+            // 计算总额度
+            let totalUsed = 0, totalLimit = 0;
+            successResults.forEach(r => {
+                if (r.usage && r.usage !== 'N/A') {
+                    const [used, limit] = r.usage.split('/').map(Number);
+                    if (!isNaN(used) && !isNaN(limit)) {
+                        totalUsed += used;
+                        totalLimit += limit;
+                    }
+                }
+            });
+            const totalUsageText = totalLimit > 0 ? `\n\n总额度: ${totalUsed}/${totalLimit} (已用 ${((totalUsed/totalLimit)*100).toFixed(1)}%)` : '';
+
+            showToast(
+                '导入成功',
+                `已导入 ${successCount} 个账户到分组 "${groupName}"${failCount > 0 ? `\n${failCount} 个失败` : ''}${totalUsageText}\n\n${successAccounts}${moreText}`,
+                'success',
+                10000
+            );
+
+            // 刷新提供商列表
+            await loadProviders();
+        } else {
+            showToast(
+                '错误',
+                '所有账户导入失败',
+                'error'
+            );
+        }
+
+    } catch (error) {
+        console.error('批量导入失败:', error);
+        showToast(
+            '错误',
+            `批量导入失败: ${error.message}`,
+            'error'
+        );
     }
 }
 

@@ -367,11 +367,61 @@ async initializeAuth(forceRefresh = false) {
         return;
     }
 
+    /**
+     * 规范化凭据格式 - 支持多种输入格式
+     * @param {Object} data - 原始数据
+     * @param {number} accountIndex - 账户索引（用于账户管理器格式）
+     * @returns {Object|null} 规范化后的凭据对象
+     */
+    const normalizeCredentials = (data, accountIndex = 0) => {
+        if (!data || typeof data !== 'object') {
+            return null;
+        }
+
+        // Format 1: Account Manager export format (contains 'accounts' array)
+        if (Array.isArray(data.accounts) && data.accounts.length > 0) {
+            const account = data.accounts[accountIndex];
+            if (account && account.credentials) {
+                console.info(`[Kiro Auth] Detected Account Manager format, extracting credentials from account[${accountIndex}]: ${account.email || account.nickname || 'unknown'}`);
+                const creds = { ...account.credentials };
+                // Convert timestamp expiresAt to ISO string if needed
+                if (typeof creds.expiresAt === 'number') {
+                    creds.expiresAt = new Date(creds.expiresAt).toISOString();
+                }
+                return creds;
+            }
+            return null;
+        }
+
+        // Format 2: Direct credentials format (contains 'accessToken' directly)
+        if (data.accessToken) {
+            const creds = { ...data };
+            // Convert timestamp expiresAt to ISO string if needed
+            if (typeof creds.expiresAt === 'number') {
+                creds.expiresAt = new Date(creds.expiresAt).toISOString();
+            }
+            return creds;
+        }
+
+        // Format 3: Nested credentials object
+        if (data.credentials && data.credentials.accessToken) {
+            console.info('[Kiro Auth] Detected nested credentials format');
+            const creds = { ...data.credentials };
+            if (typeof creds.expiresAt === 'number') {
+                creds.expiresAt = new Date(creds.expiresAt).toISOString();
+            }
+            return creds;
+        }
+
+        return data;
+    };
+
     // Helper to load credentials from a file
     const loadCredentialsFromFile = async (filePath) => {
         try {
             const fileContent = await fs.readFile(filePath, 'utf8');
-            return JSON.parse(fileContent);
+            const rawData = JSON.parse(fileContent);
+            return normalizeCredentials(rawData);
         } catch (error) {
             if (error.code === 'ENOENT') {
                 console.debug(`[Kiro Auth] Credential file not found: ${filePath}`);
@@ -411,8 +461,14 @@ async initializeAuth(forceRefresh = false) {
 
         // Priority 1: Load from Base64 credentials if available
         if (this.base64Creds) {
-            Object.assign(mergedCredentials, this.base64Creds);
-            console.info('[Kiro Auth] Successfully loaded credentials from Base64 (constructor).');
+            // 使用 normalizeCredentials 规范化 Base64 凭据（支持账户管理器格式）
+            const normalizedBase64Creds = normalizeCredentials(this.base64Creds);
+            if (normalizedBase64Creds) {
+                Object.assign(mergedCredentials, normalizedBase64Creds);
+                console.info('[Kiro Auth] Successfully loaded credentials from Base64 (constructor).');
+            } else {
+                console.warn('[Kiro Auth] Base64 credentials could not be normalized.');
+            }
             // Clear base64Creds after use to prevent re-processing
             this.base64Creds = null;
         }

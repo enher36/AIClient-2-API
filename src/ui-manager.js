@@ -619,6 +619,162 @@ export async function handleUIApiRequests(method, pathParam, req, res, currentCo
         return true;
     }
 
+    // 批量导入 Kiro 凭证 API（支持账户管理器导出格式）
+    if (method === 'POST' && pathParam === '/api/batch-import-kiro-credentials') {
+        const uploadMiddleware = upload.single('file');
+
+        uploadMiddleware(req, res, async (err) => {
+            if (err) {
+                console.error('[UI API] Batch import file upload error:', err.message);
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({
+                    error: { message: err.message || 'File upload failed' }
+                }));
+                return;
+            }
+
+            try {
+                if (!req.file) {
+                    res.writeHead(400, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({
+                        error: { message: 'No file was uploaded' }
+                    }));
+                    return;
+                }
+
+                // 读取并解析上传的文件
+                const fileContent = await fs.readFile(req.file.path, 'utf8');
+                let data;
+                try {
+                    data = JSON.parse(fileContent);
+                } catch (parseError) {
+                    res.writeHead(400, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({
+                        error: { message: 'Invalid JSON file: ' + parseError.message }
+                    }));
+                    // 清理临时文件
+                    await fs.unlink(req.file.path).catch(() => {});
+                    return;
+                }
+
+                // 验证账户管理器导出格式
+                if (!Array.isArray(data.accounts) || data.accounts.length === 0) {
+                    res.writeHead(400, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({
+                        error: { message: 'Invalid format: Expected accounts array with at least one account' }
+                    }));
+                    await fs.unlink(req.file.path).catch(() => {});
+                    return;
+                }
+
+                const importResults = [];
+
+                // 使用原始文件名（去掉扩展名）作为分组名称
+                const originalFileName = req.file.originalname || 'kiro-batch-import';
+                const groupName = path.parse(originalFileName).name.replace(/[^a-zA-Z0-9_\u4e00-\u9fa5-]/g, '_');
+                const groupDir = path.join(process.cwd(), 'configs', 'kiro', groupName);
+
+                // 创建分组目录
+                await fs.mkdir(groupDir, { recursive: true });
+
+                console.log(`[UI API] Creating batch import group: ${groupName} with ${data.accounts.length} accounts`);
+
+                // 遍历每个账户并创建凭据文件
+                for (let i = 0; i < data.accounts.length; i++) {
+                    const account = data.accounts[i];
+
+                    if (!account.credentials || !account.credentials.accessToken) {
+                        importResults.push({
+                            index: i,
+                            email: account.email || account.nickname || `account_${i}`,
+                            success: false,
+                            error: 'Missing credentials or accessToken'
+                        });
+                        continue;
+                    }
+
+                    try {
+                        // 规范化凭据格式
+                        const credentials = { ...account.credentials };
+                        if (typeof credentials.expiresAt === 'number') {
+                            credentials.expiresAt = new Date(credentials.expiresAt).toISOString();
+                        }
+
+                        // 使用序号作为文件名，在分组目录下创建
+                        const accountIdentifier = account.email || account.nickname || `account_${i}`;
+                        const fileName = `${String(i + 1).padStart(3, '0')}_${accountIdentifier.replace(/[^a-zA-Z0-9_-]/g, '_')}.json`;
+                        const targetFilePath = path.join(groupDir, fileName);
+
+                        await fs.writeFile(targetFilePath, JSON.stringify(credentials, null, 2), 'utf8');
+
+                        const relativePath = path.relative(process.cwd(), targetFilePath);
+
+                        importResults.push({
+                            index: i,
+                            email: accountIdentifier,
+                            success: true,
+                            filePath: relativePath,
+                            subscription: account.subscription?.type || 'Unknown',
+                            usage: account.usage ? `${account.usage.current}/${account.usage.limit}` : 'N/A'
+                        });
+
+                        console.log(`[UI API] Imported Kiro credentials: ${targetFilePath} (${accountIdentifier})`);
+
+                    } catch (accountError) {
+                        importResults.push({
+                            index: i,
+                            email: account.email || account.nickname || `account_${i}`,
+                            success: false,
+                            error: accountError.message
+                        });
+                    }
+                }
+
+                // 清理临时文件
+                await fs.unlink(req.file.path).catch(() => {});
+
+                const successCount = importResults.filter(r => r.success).length;
+                const failCount = importResults.filter(r => !r.success).length;
+
+                // 广播更新事件
+                if (successCount > 0) {
+                    broadcastEvent('config_update', {
+                        action: 'batch_import',
+                        provider: 'kiro',
+                        count: successCount,
+                        timestamp: new Date().toISOString()
+                    });
+                }
+
+                console.log(`[UI API] Batch import completed: ${successCount} success, ${failCount} failed, group: ${groupName}`);
+
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({
+                    success: true,
+                    message: `成功导入 ${successCount} 个账户到分组 "${groupName}"${failCount > 0 ? `，${failCount} 个失败` : ''}`,
+                    groupName,
+                    groupPath: path.relative(process.cwd(), groupDir),
+                    totalAccounts: data.accounts.length,
+                    successCount,
+                    failCount,
+                    results: importResults
+                }));
+
+            } catch (error) {
+                console.error('[UI API] Batch import processing error:', error);
+                // 清理临时文件
+                if (req.file?.path) {
+                    await fs.unlink(req.file.path).catch(() => {});
+                }
+                res.writeHead(500, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({
+                    error: { message: 'Batch import failed: ' + error.message }
+                }));
+            }
+        });
+        return true;
+    }
+
     // Update admin password
     if (method === 'POST' && pathParam === '/api/admin-password') {
         try {

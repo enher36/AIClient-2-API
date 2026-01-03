@@ -58,6 +58,10 @@ function showProviderManagerModal(data) {
                         <span class="label" data-i18n="modal.provider.healthyAccounts">健康账户:</span>
                         <span class="value">${healthyCount}</span>
                     </div>
+                    <div class="provider-summary-item provider-usage-summary" id="usageSummary-${providerType}">
+                        <span class="label">总额度:</span>
+                        <span class="value usage-loading"><i class="fas fa-spinner fa-spin"></i> 加载中...</span>
+                    </div>
                     <div class="provider-summary-actions">
                         <button class="btn btn-success" onclick="window.showAddProviderForm('${providerType}')">
                             <i class="fas fa-plus"></i> <span data-i18n="modal.provider.add">添加新提供商</span>
@@ -91,6 +95,104 @@ function showProviderManagerModal(data) {
     // 先获取该提供商类型的模型列表（只调用一次API）
     const pageProviders = providers.slice(0, PROVIDERS_PER_PAGE);
     loadModelsForProviderType(providerType, pageProviders);
+
+    // 加载额度信息
+    loadProviderUsageSummary(providerType);
+}
+
+/**
+ * 加载提供商额度汇总信息
+ * @param {string} providerType - 提供商类型
+ */
+async function loadProviderUsageSummary(providerType) {
+    const summaryElement = document.getElementById(`usageSummary-${providerType}`);
+    if (!summaryElement) return;
+
+    try {
+        const response = await window.apiClient.get(`/usage/${encodeURIComponent(providerType)}`);
+
+        if (response && response.instances) {
+            let totalUsed = 0;
+            let totalLimit = 0;
+            let successCount = 0;
+
+            response.instances.forEach(instance => {
+                if (instance.usage && !instance.error && instance.success) {
+                    // 支持多种用量数据格式
+                    const usage = instance.usage;
+
+                    // 格式1: Kiro/Claude 格式 - usageBreakdown 数组
+                    if (usage.usageBreakdown && Array.isArray(usage.usageBreakdown)) {
+                        usage.usageBreakdown.forEach(breakdown => {
+                            const used = breakdown.currentUsage || 0;
+                            const limit = breakdown.usageLimit || 0;
+                            totalUsed += used;
+                            totalLimit += limit;
+                        });
+                        successCount++;
+                    }
+                    // 格式2: Gemini 格式 - 直接字段
+                    else if (usage.used !== undefined || usage.current !== undefined) {
+                        const used = usage.current || usage.used || 0;
+                        const limit = usage.limit || usage.total || 0;
+                        totalUsed += used;
+                        totalLimit += limit;
+                        successCount++;
+                    }
+                    // 格式3: 其他格式 - 尝试从顶层获取
+                    else if (usage.limit !== undefined || usage.total !== undefined) {
+                        const used = usage.current || usage.used || 0;
+                        const limit = usage.limit || usage.total || 0;
+                        totalUsed += used;
+                        totalLimit += limit;
+                        successCount++;
+                    }
+                }
+            });
+
+            if (totalLimit > 0) {
+                const percentage = ((totalUsed / totalLimit) * 100).toFixed(1);
+                const colorClass = percentage > 80 ? 'text-danger' : (percentage > 50 ? 'text-warning' : 'text-success');
+                summaryElement.innerHTML = `
+                    <span class="label">总额度:</span>
+                    <span class="value ${colorClass}">
+                        <i class="fas fa-chart-pie"></i>
+                        ${totalUsed.toFixed(2)}/${totalLimit.toFixed(2)} (${percentage}%)
+                    </span>
+                `;
+            } else if (successCount === 0 && response.totalCount > 0) {
+                summaryElement.innerHTML = `
+                    <span class="label">总额度:</span>
+                    <span class="value text-muted">
+                        <i class="fas fa-exclamation-circle"></i>
+                        获取失败
+                    </span>
+                `;
+            } else {
+                summaryElement.innerHTML = `
+                    <span class="label">总额度:</span>
+                    <span class="value text-muted">
+                        <i class="fas fa-minus-circle"></i>
+                        暂无数据
+                    </span>
+                `;
+            }
+        } else {
+            summaryElement.innerHTML = `
+                <span class="label">总额度:</span>
+                <span class="value text-muted">暂无数据</span>
+            `;
+        }
+    } catch (error) {
+        console.error('Failed to load usage summary:', error);
+        summaryElement.innerHTML = `
+            <span class="label">总额度:</span>
+            <span class="value text-muted">
+                <i class="fas fa-exclamation-triangle"></i>
+                加载失败
+            </span>
+        `;
+    }
 }
 
 /**
